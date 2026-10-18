@@ -312,8 +312,10 @@ constructor(
 
     fun updateOverlayParams(updatedOverlayParams: UdfpsOverlayParams) {
         overlayParams = updatedOverlayParams
-        sensorBounds = updatedOverlayParams.sensorBounds
-        overlayTouchView?.sensorRect = updatedOverlayParams.sensorBounds
+        // Copy the Rect: overlayParams' instance may be mutated by the framework later,
+        // which would silently move our sensor bounds and misplace the UDFPS icon.
+        sensorBounds = Rect(updatedOverlayParams.sensorBounds)
+        overlayTouchView?.sensorRect = sensorBounds
         getTouchOverlay()?.let {
             if (addViewRunnable == null) {
                 // Only updateViewLayout if there's no pending view to add to WM.

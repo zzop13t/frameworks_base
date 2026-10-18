@@ -755,6 +755,12 @@ public class FingerprintProvider implements IBinder.DeathRecipient, ServiceProvi
 
     @Override
     public void onPointerDown(long requestId, int sensorId, PointerContext pc) {
+        // If the HAL handles display touches itself, the framework must not feed it touches
+        // as well: doing so makes the two consumers fight over the same input, which breaks
+        // UDFPS enrollment (touches land outside the sensor area / get swallowed).
+        if (mFingerprintSensors.get(sensorId).getSensorProperties().halHandlesDisplayTouches) {
+            return;
+        }
         mFingerprintSensors.get(sensorId).getScheduler().getCurrentClientIfMatches(
                 requestId, (client) -> {
                     if (!(client instanceof Udfps)) {

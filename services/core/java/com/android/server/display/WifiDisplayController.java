@@ -748,46 +748,61 @@ final class WifiDisplayController implements DumpUtils.Dump {
             Slog.i(TAG, "Listening for RTSP connection on " + iface
                     + " from Wifi display: " + mConnectedDevice.deviceName);
 
-            mRemoteDisplay = RemoteDisplay.listen(iface, new RemoteDisplay.Listener() {
-                @Override
-                public void onDisplayConnected(Surface surface,
-                        int width, int height, int flags, int session) {
-                    if (mConnectedDevice == oldDevice && !mRemoteDisplayConnected) {
-                        Slog.i(TAG, "Opened RTSP connection with Wifi display: "
-                                + mConnectedDevice.deviceName);
-                        mRemoteDisplayConnected = true;
-                        mHandler.removeCallbacks(mRtspTimeout);
+            // AOSP removed the Miracast sender from frameworks/av (MediaPlayerService::
+            // listenForRemoteDisplay() just logs "no longer supported" and returns NULL),
+            // so RemoteDisplay.listen() always throws IllegalStateException here. Since
+            // this runs on the android.display thread of system_server, an uncaught
+            // exception kills the whole system process ("FATAL EXCEPTION IN SYSTEM
+            // PROCESS") and soft-reboots the device. Treat it as a connection failure.
+            try {
+                mRemoteDisplay = RemoteDisplay.listen(iface, new RemoteDisplay.Listener() {
+                    @Override
+                    public void onDisplayConnected(Surface surface,
+                            int width, int height, int flags, int session) {
+                        if (mConnectedDevice == oldDevice && !mRemoteDisplayConnected) {
+                            Slog.i(TAG, "Opened RTSP connection with Wifi display: "
+                                    + mConnectedDevice.deviceName);
+                            mRemoteDisplayConnected = true;
+                            mHandler.removeCallbacks(mRtspTimeout);
 
-                        if (mWifiDisplayCertMode) {
-                            mListener.onDisplaySessionInfo(
-                                    getSessionInfo(mConnectedDeviceGroupInfo, session));
+                            if (mWifiDisplayCertMode) {
+                                mListener.onDisplaySessionInfo(
+                                        getSessionInfo(mConnectedDeviceGroupInfo, session));
+                            }
+
+                            final WifiDisplay display = createWifiDisplay(mConnectedDevice);
+                            advertiseDisplay(display, surface, width, height, flags);
                         }
-
-                        final WifiDisplay display = createWifiDisplay(mConnectedDevice);
-                        advertiseDisplay(display, surface, width, height, flags);
                     }
-                }
 
-                @Override
-                public void onDisplayDisconnected() {
-                    if (mConnectedDevice == oldDevice) {
-                        Slog.i(TAG, "Closed RTSP connection with Wifi display: "
-                                + mConnectedDevice.deviceName);
-                        mHandler.removeCallbacks(mRtspTimeout);
-                        disconnect();
+                    @Override
+                    public void onDisplayDisconnected() {
+                        if (mConnectedDevice == oldDevice) {
+                            Slog.i(TAG, "Closed RTSP connection with Wifi display: "
+                                    + mConnectedDevice.deviceName);
+                            mHandler.removeCallbacks(mRtspTimeout);
+                            disconnect();
+                        }
                     }
-                }
 
-                @Override
-                public void onDisplayError(int error) {
-                    if (mConnectedDevice == oldDevice) {
-                        Slog.i(TAG, "Lost RTSP connection with Wifi display due to error "
-                                + error + ": " + mConnectedDevice.deviceName);
-                        mHandler.removeCallbacks(mRtspTimeout);
-                        handleConnectionFailure(false);
+                    @Override
+                    public void onDisplayError(int error) {
+                        if (mConnectedDevice == oldDevice) {
+                            Slog.i(TAG, "Lost RTSP connection with Wifi display due to error "
+                                    + error + ": " + mConnectedDevice.deviceName);
+                            mHandler.removeCallbacks(mRtspTimeout);
+                            handleConnectionFailure(false);
+                        }
                     }
-                }
-            }, mHandler, mContext.getOpPackageName());
+                }, mHandler, mContext.getOpPackageName());
+            } catch (IllegalStateException e) {
+                Slog.e(TAG, "Failed to start listening for Wifi display on " + iface
+                        + ", Miracast is not supported by this build", e);
+                mRemoteDisplay = null;
+                mRemoteDisplayInterface = null;
+                handleConnectionFailure(false);
+                return;
+            }
 
             // Use extended timeout value for certification, as some tests require user inputs
             int rtspTimeout = mWifiDisplayCertMode ?

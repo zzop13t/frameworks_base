@@ -124,6 +124,9 @@ import kotlin.Unit;
 import kotlinx.coroutines.CoroutineScope;
 
 import java.io.PrintWriter;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
@@ -146,6 +149,7 @@ import javax.inject.Inject;
 @SysUISingleton
 public class UdfpsController implements DozeReceiver, Dumpable {
     private static final String TAG = "UdfpsController";
+    private static final String FPPRESS_PATH = "/sys/kernel/oplus_display/notify_fppress";
     private static final long AOD_SEND_FINGER_UP_DELAY_MILLIS = 1000;
 
     private static final long MIN_UNCHANGED_INTERACTION_LOG_INTERVAL = 50;
@@ -1101,6 +1105,7 @@ public class UdfpsController implements DozeReceiver, Dumpable {
         }
 
         if (!mOnFingerDown) {
+            writeFppress(1);
             playStartHaptic();
 
             mDeviceEntryFaceAuthInteractor.onUdfpsSensorTouched();
@@ -1164,10 +1169,19 @@ public class UdfpsController implements DozeReceiver, Dumpable {
                     cb.onFingerUp();
                 }
             }
+            writeFppress(0);
         }
         mOnFingerDown = false;
         unconfigureDisplay(view);
         cancelAodSendFingerUpAction();
+    }
+
+    private void writeFppress(int value) {
+        try (FileOutputStream output = new FileOutputStream(FPPRESS_PATH)) {
+            output.write(Integer.toString(value).getBytes(StandardCharsets.US_ASCII));
+        } catch (IOException e) {
+            Log.w(TAG, "Failed to write fppress value: " + value, e);
+        }
     }
 
     /**

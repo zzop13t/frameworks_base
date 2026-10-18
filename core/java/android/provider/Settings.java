@@ -6780,6 +6780,16 @@ public final class Settings {
         public static final String SHOW_BATTERY_PERCENT = "status_bar_show_battery_percent";
 
         /**
+         * Whether double tapping the status bar turns off the screen.
+         *    0 - Disabled
+         *    1 - Enabled
+         * @hide
+         */
+        @Readable
+        public static final String STATUS_BAR_DOUBLE_TAP_TO_SLEEP =
+                "status_bar_double_tap_to_sleep";
+
+        /**
          * Whether or not to enable multiple audio focus.
          * When enabled, requires more management by user over application playback activity,
          * for instance pausing media apps when another starts.

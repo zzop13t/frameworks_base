@@ -18,6 +18,9 @@ package com.android.systemui.statusbar.pipeline.shared.ui.composable
 
 import android.content.Context
 import android.graphics.Rect
+import android.os.PowerManager
+import android.os.SystemClock
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -173,7 +176,13 @@ constructor(
                         statusBarRegionSamplingViewModelFactory =
                             statusBarRegionSamplingViewModelFactory,
                         onViewCreated = andThen,
-                        modifier = Modifier.sysUiResTagContainer(),
+                        modifier =
+                            Modifier.sysUiResTagContainer()
+                                .statusBarDoubleTapToSleep(root.context) {
+                                    root.context
+                                        .getSystemService(PowerManager::class.java)
+                                        ?.goToSleep(SystemClock.uptimeMillis())
+                                },
                     )
                 }
             }
@@ -745,6 +754,57 @@ private fun rememberViewWidthAsState(view: View): MutableIntState {
  *    consumes them, preventing any child composables from receiving them.
  */
 @VisibleForTesting
+/**
+ * Turns off the screen when the status bar is double tapped.
+ *
+ * Never consumes pointer events: taps are only observed on the initial pass, so the clock, the
+ * icons and the swipe-down gesture keep working as usual. Whether the gesture is active is read
+ * at tap time from [Settings.System.STATUS_BAR_DOUBLE_TAP_TO_SLEEP].
+ */
+fun Modifier.statusBarDoubleTapToSleep(
+    context: Context,
+    onDoubleTap: () -> Unit,
+): Modifier =
+    pointerInput(context) {
+        var lastTapUptime = 0L
+        awaitEachGesture {
+            val down =
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            var moved = false
+            var upUptime = 0L
+            while (true) {
+                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                val change = event.changes.first()
+                // Treat it as a drag (not a tap) once we move beyond touch slop.
+                if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                    moved = true
+                }
+                if (!change.pressed) {
+                    upUptime = change.uptimeMillis
+                    break
+                }
+            }
+            if (moved) {
+                lastTapUptime = 0L
+                return@awaitEachGesture
+            }
+            val isDoubleTap =
+                lastTapUptime != 0L &&
+                    upUptime - lastTapUptime <= viewConfiguration.doubleTapTimeoutMillis
+            lastTapUptime = if (isDoubleTap) 0L else upUptime
+            if (
+                isDoubleTap &&
+                    Settings.System.getInt(
+                        context.contentResolver,
+                        Settings.System.STATUS_BAR_DOUBLE_TAP_TO_SLEEP,
+                        1,
+                    ) != 0
+            ) {
+                onDoubleTap()
+            }
+        }
+    }
+
 fun Modifier.forwardDragAndSwipeToShadeRootView(
     view: View,
     touchSlop: Float,
